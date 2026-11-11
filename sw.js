@@ -1,7 +1,7 @@
 // Service worker: deixa o app abrir sem internet, guardando o "casco" (arquivos locais).
 // IMPORTANTE: ao alterar qualquer arquivo local, troque a versão abaixo (ex.: v2),
 // senão o aparelho continua usando a versão antiga guardada no cache.
-const VERSAO = "gastos-cartao-v1";
+const VERSAO = "gastos-cartao-v2";
 
 const CASCO = [
   "./",

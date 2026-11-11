@@ -46,3 +46,39 @@ export function vencimentoDaFatura(fechamento, diaVencimento, feriados = []) {
 export function formatarData(data) {
   return data.toLocaleDateString("pt-BR");
 }
+
+// Chave de data no formato AAAA-MM-DD, usada para agrupar lançamentos por fatura.
+export function chaveData(data) {
+  const ano = data.getFullYear();
+  const mes = String(data.getMonth() + 1).padStart(2, "0");
+  const dia = String(data.getDate()).padStart(2, "0");
+  return `${ano}-${mes}-${dia}`;
+}
+
+// Parcela n (1 = primeira) entra na fatura seguinte à da parcela anterior.
+export function fechamentoDaCompraDaParcela(dataCompra, diaFechamento, parcela) {
+  const primeira = fechamentoDaCompra(dataCompra, diaFechamento);
+  return new Date(primeira.getFullYear(), primeira.getMonth() + (parcela - 1), primeira.getDate());
+}
+
+// Divide o total em centavos. A diferença de centavos vai para a primeira parcela.
+export function dividirParcelas(totalCentavos, quantidade) {
+  const base = Math.floor(totalCentavos / quantidade);
+  const resto = totalCentavos - base * quantidade;
+  return Array.from({ length: quantidade }, (_, i) => base + (i === 0 ? resto : 0));
+}
+
+// Aceita "1.234,56", "1234,56" ou "1234.56". Retorna centavos, ou NaN se inválido.
+export function parseValorBR(texto) {
+  const limpo = String(texto).trim().replace(/\s/g, "");
+  if (!limpo) return NaN;
+  const normalizado = limpo.includes(",") ? limpo.replace(/\./g, "").replace(",", ".") : limpo;
+  const numero = Number(normalizado);
+  return Number.isFinite(numero) ? paraCentavos(numero) : NaN;
+}
+
+// Converte o valor de um campo de data ("AAAA-MM-DD") em Date no fuso local.
+export function parseDataISO(texto) {
+  const [ano, mes, dia] = String(texto).split("-").map(Number);
+  return new Date(ano, mes - 1, dia);
+}

@@ -26,3 +26,14 @@ export const DEFAULTS = {
     { final: "9802", tipo: "Virtual recorrente" },
   ],
 };
+
+// Participantes do lar: UID do Firebase -> nome exibido no app.
+export const PARTICIPANTES = {
+  "6M2CXKUi8ASLma5AkqEeZiC3S282": "Mário",
+  "J5afWl6yW5Syg3mhg1NtBz48qif2": "Cibele",
+};
+
+export const CATEGORIAS = [
+  "Alimentação", "Transporte", "Assinaturas", "Saúde", "Educação",
+  "Casa", "Lazer", "Compras", "Serviços", "Outros",
+];

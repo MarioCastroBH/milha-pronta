@@ -7,7 +7,7 @@ service cloud.firestore {
 
     function autorizado() {
       return request.auth != null &&
-        request.auth.uid in ['SUBSTITUIR_UID_MARIO', 'SUBSTITUIR_UID_CIBELE'];
+        request.auth.uid in ['6M2CXKUi8ASLma5AkqEeZiC3S282', 'J5afWl6yW5Syg3mhg1NtBz48qif2'];
     }
 
     match /lares/{lar} {
