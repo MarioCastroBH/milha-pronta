@@ -242,3 +242,6 @@ button.secundario.ocupado::after { border-color: var(--azul-escuro); border-righ
 }
 
 .ok { color: #1e7a3c; }
+
+/* Espaço entre a caixa de escolha de arquivo e o botão seguinte. */
+input[type="file"] { margin-bottom: 14px; }
