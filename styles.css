@@ -104,3 +104,16 @@ select {
 .linha { display: flex; justify-content: space-between; gap: 12px; }
 .detalhe { font-size: 0.85rem; color: var(--cinza); margin-top: 2px; }
 button.link { background: none; color: var(--erro); padding: 0; margin-left: 6px; font-size: 0.85rem; }
+
+.recolhivel > summary {
+  cursor: pointer;
+  list-style: none;
+  font-weight: 600;
+  font-size: 1.05rem;
+  color: var(--azul-escuro);
+}
+.recolhivel > summary::-webkit-details-marker { display: none; }
+.recolhivel > summary::after { content: "+"; float: right; font-size: 1.3rem; line-height: 1; }
+.recolhivel[open] > summary::after { content: "−"; }
+.recolhivel[open] > summary { margin-bottom: 12px; }
+h3 { font-size: 0.9rem; margin: 12px 0 6px; color: var(--cinza); }

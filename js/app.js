@@ -280,7 +280,14 @@ async function renderApp(usuario) {
     </section>
 
     <section class="cartao">
-      <h2>Nova compra</h2>
+      <h2>Compras desta fatura</h2>
+      ${lancamentos.length
+        ? `<ul class="lista">${itens}</ul>`
+        : `<p class="dica">Nenhuma compra lançada neste ciclo.</p>`}
+    </section>
+
+    <details class="cartao recolhivel">
+      <summary>Nova compra</summary>
       <form id="form-compra">
         <label>Descrição
           <input name="descricao" required maxlength="80">
@@ -306,22 +313,13 @@ async function renderApp(usuario) {
         <button type="submit">Salvar compra</button>
         <p class="erro" id="erro-compra"></p>
       </form>
-    </section>
+    </details>
 
-    <section class="cartao">
-      <h2>Compras desta fatura</h2>
-      ${lancamentos.length
-        ? `<ul class="lista">${itens}</ul>`
-        : `<p class="dica">Nenhuma compra lançada neste ciclo.</p>`}
-    </section>
-
-    <section class="cartao">
-      <h2>Cartões</h2>
+    <details class="cartao recolhivel">
+      <summary>Configurações</summary>
+      <h3>Cartões</h3>
       <ul>${cartoes}</ul>
-    </section>
-
-    <section class="cartao">
-      <h2>Configuração do ciclo</h2>
+      <h3>Ciclo</h3>
       <form id="form-config">
         <label>Dia de fechamento (1 a 28)
           <input type="number" name="diaFechamento" min="1" max="28" required value="${esc(lar.diaFechamento)}">
@@ -332,7 +330,8 @@ async function renderApp(usuario) {
         <button type="submit">Salvar</button>
         <p class="erro" id="erro-config"></p>
       </form>
-    </section>
+    </details>
+
     ${blocoInstalar()}`;
 
   document.getElementById("btn-sair").addEventListener("click", () => signOut(auth));
