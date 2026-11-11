@@ -53,3 +53,7 @@ Para o login funcionar, o domínio precisa estar em **Authentication > Configura
 - A biblioteca do Firebase é carregada pela internet. Sem conexão, o app abre, mas o login e os dados só funcionam quando a internet voltar.
 - Os limites gratuitos do Firebase Spark podem mudar. Confira em firebase.google.com/pricing de tempos em tempos.
 - A versão do SDK (`10.14.1`) está fixada nos imports de `js/app.js`. Para atualizar, troque o número nos três imports.
+
+## Créditos
+
+Ícone do app: Credit card icons created by juicy_fish - Flaticon (https://www.flaticon.com/free-icons/credit-card).
