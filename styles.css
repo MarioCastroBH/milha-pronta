@@ -221,7 +221,9 @@ button.secundario.ocupado::after { border-color: var(--azul-escuro); border-righ
 }
 .stat-rotulo { font-size: 0.85rem; color: var(--cinza); }
 .stat-valor { font-size: 2rem; font-weight: 700; line-height: 1.15; }
-.stat.destaque .stat-valor { color: var(--azul); }
+.stat.stat-total .stat-valor { color: var(--azul); }
+.stat.stat-transferido .stat-valor { color: #1e7a3c; }
+.stat.stat-falta .stat-valor { color: var(--erro); }
 
 /* Semanas recolhíveis */
 .semana > summary {
@@ -245,3 +247,8 @@ button.secundario.ocupado::after { border-color: var(--azul-escuro); border-righ
 
 /* Espaço entre a caixa de escolha de arquivo e o botão seguinte. */
 input[type="file"] { margin-bottom: 14px; }
+
+/* Visão Fatura: busca e forma de exibição */
+#busca-fatura { margin-bottom: 10px; }
+.seletor-modo { display: flex; gap: 8px; margin-bottom: 12px; }
+.seletor-modo button { flex: 1; }

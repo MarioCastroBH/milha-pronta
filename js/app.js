@@ -275,19 +275,12 @@ function chaveDedup(l) {
   return `${l.cartaoFinal}|${l.valorCentavos}|${chaveData(l.dataCompra)}|${l.parcela}|${l.totalParcelas}`;
 }
 
+// Todos os lançamentos do lar, já com a data como Date. Usado na Fatura (busca e agrupamento) e na importação.
 async function carregarTodosLancamentos() {
   const snap = await getDocs(refLancamentos());
   return snap.docs.map((d) => {
     const dados = d.data();
-    return {
-      id: d.id,
-      cartaoFinal: dados.cartaoFinal,
-      valorCentavos: dados.valorCentavos,
-      dataCompra: dados.dataCompra.toDate(),
-      parcela: dados.parcela,
-      totalParcelas: dados.totalParcelas,
-      origem: dados.origem,
-    };
+    return { id: d.id, ...dados, dataCompra: dados.dataCompra.toDate() };
   });
 }
 
@@ -478,27 +471,121 @@ function blocoInstalar() {
   return "";
 }
 
-function telaFatura(fechamento, vencimento, lancamentos, total, resumoPorPortador, erroCarga) {
-  const itens = lancamentos.map((l) => {
-    const parcela = l.totalParcelas > 1 ? `parcela ${l.parcela} de ${l.totalParcelas} · ` : "";
-    return `
-      <li class="item">
-        <div class="linha">
-          <strong>${esc(l.descricao)}</strong>
-          <span>${esc(formatarReal(l.valorCentavos))}</span>
-        </div>
-        <div class="detalhe">${esc(formatarData(l.dataCompra.toDate()))} · ${esc(parcela)}final ${esc(l.cartaoFinal)} · ${esc(l.portador)} · ${esc(l.categoria)}</div>
-        <div class="detalhe">lançado por ${esc(l.lancadoPorNome)}
-          <button class="link" data-excluir="${esc(l.grupoId)}">excluir compra</button>
-        </div>
-      </li>`;
-  }).join("");
+// Estado da visão Fatura: forma de exibição (lista ou por semana) e texto da busca.
+let modoFatura = (() => {
+  try { return localStorage.getItem("milhaPronta.modoFatura") === "semana" ? "semana" : "lista"; }
+  catch (e) { return "lista"; }
+})();
+let buscaFatura = "";
+let dadosFatura = null;
 
+function normalizarTexto(texto) {
+  return String(texto ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+}
+
+// Busca pela descrição (sem acento e sem diferenciar maiúsculas) ou pelo valor exato, como "129,90".
+function casaBusca(l, termo) {
+  const t = normalizarTexto(termo);
+  if (!t) return true;
+  if (normalizarTexto(l.descricao).includes(t)) return true;
+  const centavos = parseValorBR(termo);
+  return Number.isInteger(centavos) && centavos === l.valorCentavos;
+}
+
+function dataDeChave(chave) {
+  const [ano, mes, dia] = chave.split("-").map(Number);
+  return new Date(ano, mes - 1, dia);
+}
+
+function itemLancamento(l, comFatura = false) {
+  const parcela = l.totalParcelas > 1 ? `parcela ${l.parcela} de ${l.totalParcelas} · ` : "";
+  const fatura = comFatura && l.faturaFechamento
+    ? ` · fatura que fecha em ${esc(formatarData(dataDeChave(l.faturaFechamento)))}`
+    : "";
+  return `
+    <li class="item">
+      <div class="linha">
+        <strong>${esc(l.descricao)}</strong>
+        <span>${esc(formatarReal(l.valorCentavos))}</span>
+      </div>
+      <div class="detalhe">${esc(formatarData(l.dataCompra))} · ${esc(parcela)}final ${esc(l.cartaoFinal)} · ${esc(l.portador)} · ${esc(l.categoria)}${fatura}</div>
+      <div class="detalhe">lançado por ${esc(l.lancadoPorNome)}
+        <button class="link" data-excluir="${esc(l.grupoId)}">excluir compra</button>
+      </div>
+    </li>`;
+}
+
+// Agrupa as compras do ciclo por semana. A semana atual vem primeiro e aberta; as anteriores ficam por último.
+function visaoSemanas(ciclo, lancamentos) {
+  const semanas = semanasDoCiclo(ciclo.inicio, ciclo.fim).map((s) => ({
+    rotulo: `Semana ${s.numero}`,
+    intervalo: `${formatarData(s.inicio)} a ${formatarData(s.fim)}`,
+    inicio: s.inicio,
+    fim: s.fim,
+    lista: lancamentos.filter((l) => dentroDe(l.dataCompra, s.inicio, s.fim)),
+  }));
+  const agora = new Date();
+  const ehAtual = (b) => dentroDe(agora, b.inicio, b.fim);
+  const noCiclo = (l) => semanas.some((s) => dentroDe(l.dataCompra, s.inicio, s.fim));
+  const anteriores = {
+    rotulo: "Parcelas de compras anteriores",
+    intervalo: "",
+    lista: lancamentos.filter((l) => !noCiclo(l)),
+  };
+
+  const ordenados = [
+    ...semanas.filter(ehAtual),
+    ...semanas.filter((b) => !ehAtual(b)),
+    ...(anteriores.lista.length ? [anteriores] : []),
+  ];
+
+  return ordenados.map((b) => {
+    const aberto = b.inicio ? ehAtual(b) : false;
+    const corpo = b.lista.length
+      ? `<ul class="lista">${b.lista.map((l) => itemLancamento(l)).join("")}</ul>`
+      : `<p class="dica">Nenhuma compra nesta semana.</p>`;
+    return `
+      <details class="cartao semana" ${aberto ? "open" : ""}>
+        <summary>
+          <span>${esc(b.rotulo)}${aberto ? ' <em class="etiqueta">atual</em>' : ""}</span>
+          <span class="semana-total">${esc(formatarReal(somar(b.lista)))}</span>
+        </summary>
+        <div class="semana-corpo">
+          ${b.intervalo ? `<p class="dica">${esc(b.intervalo)}</p>` : ""}
+          ${corpo}
+        </div>
+      </details>`;
+  }).join("");
+}
+
+// Busca em todas as faturas, com o total encontrado.
+function resultadoBusca(termo, todos) {
+  const achados = todos
+    .filter((l) => casaBusca(l, termo))
+    .sort((a, b) => b.dataCompra - a.dataCompra);
+  const lista = achados.length
+    ? `<ul class="lista">${achados.map((l) => itemLancamento(l, true)).join("")}</ul>`
+    : `<p class="dica">Nada encontrado.</p>`;
+  return `
+    <p class="dica">${achados.length} compra(s) encontrada(s) · total ${esc(formatarReal(somar(achados)))}. A busca cobre todas as faturas.</p>
+    ${lista}`;
+}
+
+function conteudoFatura(dados) {
+  if (buscaFatura.trim()) return resultadoBusca(buscaFatura, dados.todos);
+  if (modoFatura === "semana") return visaoSemanas(dados.ciclo, dados.lancamentos);
+  return dados.lancamentos.length
+    ? `<ul class="lista">${dados.lancamentos.map((l) => itemLancamento(l)).join("")}</ul>`
+    : `<p class="dica">Nenhuma compra lançada neste ciclo. Use a aba Lançar para registrar a primeira.</p>`;
+}
+
+function telaFatura(dados) {
+  const { ciclo, vencimento, total, resumoPorPortador, erroCarga } = dados;
   return `
     <section class="cartao">
       <h2>Ciclo atual</h2>
       <p>Compras feitas hoje entram na fatura que fecha em
-        <strong>${esc(formatarData(fechamento))}</strong> e vence em
+        <strong>${esc(formatarData(ciclo.fechamento))}</strong> e vence em
         <strong>${esc(formatarData(vencimento))}</strong>.</p>
       <p><strong>Total lançado nesta fatura:</strong> ${esc(formatarReal(total))}</p>
       <p class="dica">${resumoPorPortador || "Nenhuma compra lançada ainda."}</p>
@@ -506,11 +593,23 @@ function telaFatura(fechamento, vencimento, lancamentos, total, resumoPorPortado
     </section>
 
     <section class="cartao">
-      <h2>Compras desta fatura</h2>
-      ${lancamentos.length
-        ? `<ul class="lista">${itens}</ul>`
-        : `<p class="dica">Nenhuma compra lançada neste ciclo. Use a aba Lançar para registrar a primeira.</p>`}
+      <h2>Compras</h2>
+      <input type="search" id="busca-fatura" placeholder="Buscar por descrição ou valor (ex.: 129,90)" value="${esc(buscaFatura)}" autocomplete="off">
+      <div class="seletor-modo" role="group" aria-label="Forma de exibição">
+        <button type="button" data-modo="lista" class="${modoFatura === "lista" ? "" : "secundario"}">Lista</button>
+        <button type="button" data-modo="semana" class="${modoFatura === "semana" ? "" : "secundario"}">Por semana</button>
+      </div>
+      <div id="area-fatura">${conteudoFatura(dados)}</div>
     </section>`;
+}
+
+// Atualiza só a área de resultados, para o campo de busca não perder o foco a cada letra.
+function atualizarAreaFatura() {
+  const area = document.getElementById("area-fatura");
+  if (area && dadosFatura) area.innerHTML = conteudoFatura(dadosFatura);
+  document.querySelectorAll("[data-modo]").forEach((b) => {
+    b.classList.toggle("secundario", b.dataset.modo !== modoFatura);
+  });
 }
 
 function telaReserva(ciclo, lancamentos, reserva) {
@@ -593,15 +692,15 @@ function telaReserva(ciclo, lancamentos, reserva) {
 
   return `
     <section class="stats">
-      <div class="stat">
+      <div class="stat stat-total">
         <span class="stat-rotulo">Total da fatura</span>
         <span class="stat-valor">${esc(formatarReal(totalFatura))}</span>
       </div>
-      <div class="stat">
+      <div class="stat stat-transferido">
         <span class="stat-rotulo">Já transferido</span>
         <span class="stat-valor">${esc(formatarReal(transferido))}</span>
       </div>
-      <div class="stat destaque">
+      <div class="stat stat-falta">
         <span class="stat-rotulo">Falta transferir</span>
         <span class="stat-valor">${esc(formatarReal(falta))}</span>
       </div>
@@ -751,11 +850,19 @@ async function renderApp(usuario) {
   const vencimento = vencimentoDaFatura(ciclo.fechamento, lar.diaVencimento);
 
   let lancamentos = [];
+  let todos = [];
   let reserva = {};
   let erroCarga = "";
   try {
-    lancamentos = await carregarFatura(ciclo.chave);
-    reserva = await carregarReserva(ciclo.chave);
+    if (abaAtiva === "fatura") {
+      todos = await carregarTodosLancamentos();
+      lancamentos = todos
+        .filter((l) => l.faturaFechamento === ciclo.chave)
+        .sort((a, b) => b.dataCompra - a.dataCompra);
+    } else {
+      lancamentos = await carregarFatura(ciclo.chave);
+      reserva = await carregarReserva(ciclo.chave);
+    }
   } catch (e) {
     erroCarga = mensagemDeErro(e.code);
   }
@@ -790,7 +897,8 @@ async function renderApp(usuario) {
   } else if (abaAtiva === "ajustes") {
     conteudo = telaAjustes(cartoes);
   } else {
-    conteudo = telaFatura(ciclo.fechamento, vencimento, lancamentos, total, resumoPorPortador, erroCarga);
+    dadosFatura = { ciclo, vencimento, lancamentos, todos, total, resumoPorPortador, erroCarga };
+    conteudo = telaFatura(dadosFatura);
   }
 
   if (versao !== versaoRender || usuarioAtual !== usuario) return;
@@ -842,20 +950,13 @@ async function renderApp(usuario) {
     });
   }
 
-  raiz.querySelectorAll("[data-excluir]").forEach((botao) => {
-    botao.addEventListener("click", async () => {
-      if (!confirm("Excluir esta compra? Se for parcelada, todas as parcelas serão removidas.")) return;
-      await comCarregamento(botao, "Excluindo…", async () => {
-        try {
-          await excluirGrupo(botao.dataset.excluir);
-          mostrarAviso("Compra excluída.", "sucesso");
-          await renderApp(usuario);
-        } catch (e) {
-          mostrarAviso(mensagemDeErro(e.code), "erro");
-        }
-      });
+  const campoBusca = document.getElementById("busca-fatura");
+  if (campoBusca) {
+    campoBusca.addEventListener("input", (evento) => {
+      buscaFatura = evento.target.value;
+      atualizarAreaFatura();
     });
-  });
+  }
 
   raiz.querySelectorAll("[data-reserva]").forEach((botao) => {
     botao.addEventListener("click", async () => {
@@ -989,6 +1090,32 @@ function renderSemAcesso(mensagem) {
 }
 
 // --- Inicialização -------------------------------------------------------
+
+// Cliques da Fatura e exclusão ficam num único ouvinte no topo da tela,
+// assim continuam funcionando mesmo depois que a área é redesenhada.
+raiz.addEventListener("click", async (evento) => {
+  const modo = evento.target.closest("[data-modo]");
+  if (modo) {
+    modoFatura = modo.dataset.modo;
+    try { localStorage.setItem("milhaPronta.modoFatura", modoFatura); } catch (e) { /* sem armazenamento: segue sem lembrar */ }
+    atualizarAreaFatura();
+    return;
+  }
+
+  const botao = evento.target.closest("[data-excluir]");
+  if (botao && usuarioAtual) {
+    if (!confirm("Excluir esta compra? Se for parcelada, todas as parcelas serão removidas.")) return;
+    await comCarregamento(botao, "Excluindo…", async () => {
+      try {
+        await excluirGrupo(botao.dataset.excluir);
+        mostrarAviso("Compra excluída.", "sucesso");
+        await renderApp(usuarioAtual);
+      } catch (e) {
+        mostrarAviso(mensagemDeErro(e.code), "erro");
+      }
+    });
+  }
+});
 
 window.addEventListener("beforeinstallprompt", (evento) => {
   evento.preventDefault();
