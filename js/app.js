@@ -640,9 +640,11 @@ function telaReserva(ciclo, lancamentos, reserva) {
   ];
 
   const totalFatura = somar(lancamentos);
+  // Só conta o que foi marcado à mão como transferido, pelo valor registrado na marcação.
+  // Pagamentos e estornos do arquivo do Itaú nunca entram aqui.
   const transferido = blocos
     .filter((b) => itensReserva[b.chave] && itensReserva[b.chave].feito)
-    .reduce((soma, b) => soma + b.total, 0);
+    .reduce((soma, b) => soma + (itensReserva[b.chave].valorCentavos || 0), 0);
   const falta = Math.max(totalFatura - transferido, 0);
 
   // A semana atual vem primeiro e aberta; as demais seguem a ordem de data; as anteriores ficam por último.

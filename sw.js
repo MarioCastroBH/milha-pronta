@@ -2,7 +2,7 @@
 // quando há internet, o app sempre busca a versão mais nova dos arquivos locais.
 // Sem internet, usa a última cópia guardada no cache.
 // Não é preciso trocar VERSAO a cada publicação, mas trocá-la limpa caches antigos.
-const VERSAO = "gastos-cartao-v14";
+const VERSAO = "gastos-cartao-v15";
 
 const CASCO = [
   "./",
