@@ -55,6 +55,8 @@ const ICONES = {
   ajustes: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h10M18 18h2"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="16" cy="18" r="2"/></svg>',
 };
 
+const ICONE_SAIR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>';
+
 const ABAS = [
   { id: "fatura", rotulo: "Fatura" },
   { id: "lancar", rotulo: "Lançar" },
@@ -361,7 +363,12 @@ function barraInferior() {
       ${ICONES[aba.id]}
       <span>${esc(aba.rotulo)}</span>
     </button>`).join("");
-  return `<nav class="barra-inferior" aria-label="Navegação principal">${botoes}</nav>`;
+  const botaoSair = `
+    <button type="button" data-acao="sair">
+      ${ICONE_SAIR}
+      <span>Sair</span>
+    </button>`;
+  return `<nav class="barra-inferior" aria-label="Navegação principal">${botoes}${botaoSair}</nav>`;
 }
 
 async function renderApp(usuario) {
@@ -422,6 +429,15 @@ async function renderApp(usuario) {
       mostrarAviso("Não foi possível sair. Tente de novo.", "erro");
     });
   });
+
+  const btnSairBarra = raiz.querySelector("[data-acao='sair']");
+  if (btnSairBarra) {
+    btnSairBarra.addEventListener("click", (evento) => {
+      comCarregamento(evento.currentTarget, "Saindo…", () => signOut(auth)).catch(() => {
+        mostrarAviso("Não foi possível sair. Tente de novo.", "erro");
+      });
+    });
+  }
 
   raiz.querySelectorAll("[data-aba]").forEach((botao) => {
     botao.addEventListener("click", () => {
