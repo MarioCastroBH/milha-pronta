@@ -551,5 +551,14 @@ onAuthStateChanged(auth, async (usuario) => {
 });
 
 if ("serviceWorker" in navigator) {
+  // Se já havia uma versão controlando a página e uma nova assumiu, recarrega sozinha.
+  const jaTinhaVersao = !!navigator.serviceWorker.controller;
+  let recarregando = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (jaTinhaVersao && !recarregando) {
+      recarregando = true;
+      window.location.reload();
+    }
+  });
   navigator.serviceWorker.register("./sw.js");
 }

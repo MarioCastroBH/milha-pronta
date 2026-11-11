@@ -1,7 +1,8 @@
-// Service worker: deixa o app abrir sem internet, guardando o "casco" (arquivos locais).
-// IMPORTANTE: ao alterar qualquer arquivo local, troque a versão abaixo (ex.: v2),
-// senão o aparelho continua usando a versão antiga guardada no cache.
-const VERSAO = "gastos-cartao-v5";
+// Service worker com estratégia "rede primeiro":
+// quando há internet, o app sempre busca a versão mais nova dos arquivos locais.
+// Sem internet, usa a última cópia guardada no cache.
+// Não é preciso trocar VERSAO a cada publicação, mas trocá-la limpa caches antigos.
+const VERSAO = "gastos-cartao-v6";
 
 const CASCO = [
   "./",
@@ -11,14 +12,16 @@ const CASCO = [
   "./js/app.js",
   "./js/dominio.js",
   "./js/firebase-config.js",
-  "./icons/icon-192.png",
-  "./icons/icon-512.png",
-  "./icons/apple-touch-icon-180.png",
+  "./icons/icon-192-v2.png",
+  "./icons/icon-512-v2.png",
+  "./icons/icon-maskable-512-v2.png",
+  "./icons/apple-touch-icon-180-v2.png",
 ];
 
 self.addEventListener("install", (evento) => {
-  evento.waitUntil(caches.open(VERSAO).then((cache) => cache.addAll(CASCO)));
-  self.skipWaiting();
+  evento.waitUntil(
+    caches.open(VERSAO).then((cache) => cache.addAll(CASCO)).then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener("activate", (evento) => {
@@ -31,17 +34,16 @@ self.addEventListener("activate", (evento) => {
 
 self.addEventListener("fetch", (evento) => {
   const url = new URL(evento.request.url);
-  // Só intercepta arquivos do próprio site. Firebase e CDNs seguem direto pela rede.
+  // Só trata arquivos do próprio site. Firebase e CDNs seguem direto pela rede.
   if (evento.request.method !== "GET" || url.origin !== self.location.origin) return;
 
   evento.respondWith(
-    caches.match(evento.request).then((emCache) => {
-      if (emCache) return emCache;
-      return fetch(evento.request).then((resposta) => {
+    fetch(evento.request)
+      .then((resposta) => {
         const copia = resposta.clone();
         caches.open(VERSAO).then((cache) => cache.put(evento.request, copia));
         return resposta;
-      });
-    })
+      })
+      .catch(() => caches.match(evento.request))
   );
 });
