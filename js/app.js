@@ -95,8 +95,6 @@ function mostrarAviso(texto, tipo = "info") {
     el.id = "toast";
     el.setAttribute("role", "status");
     el.setAttribute("aria-live", "polite");
-    // Toque no aviso para fechá-lo antes do tempo.
-    el.addEventListener("click", () => el.classList.remove("visivel"));
     document.body.appendChild(el);
   }
   el.textContent = texto;
@@ -104,6 +102,12 @@ function mostrarAviso(texto, tipo = "info") {
   clearTimeout(el._temporizador);
   el._temporizador = setTimeout(() => el.classList.remove("visivel"), 3500);
 }
+
+// Qualquer toque na tela fecha o aviso que estiver aberto.
+document.addEventListener("click", () => {
+  const aviso = document.getElementById("toast");
+  if (aviso) aviso.classList.remove("visivel");
+});
 
 // Mostra estado de "trabalhando" no botão e desabilita os botões do mesmo formulário.
 async function comCarregamento(botao, textoEspera, acao) {
@@ -380,7 +384,18 @@ function telaReserva(ciclo, lancamentos, reserva) {
     .reduce((soma, b) => soma + b.total, 0);
   const falta = Math.max(totalFatura - transferido, 0);
 
-  const cards = blocos.map((b) => {
+  // A semana atual vem primeiro e aberta; as demais seguem a ordem de data; as anteriores ficam por último.
+  const agora = new Date();
+  const ehAtual = (b) => !!b.inicio && dentroDe(agora, b.inicio, b.fim);
+  const semanasComuns = blocos.filter((b) => b.chave !== "anteriores");
+  const ordenados = [
+    ...semanasComuns.filter((b) => ehAtual(b)),
+    ...semanasComuns.filter((b) => !ehAtual(b)),
+    ...blocos.filter((b) => b.chave === "anteriores"),
+  ];
+
+  const cards = ordenados.map((b) => {
+    const aberto = ehAtual(b);
     const estado = itensReserva[b.chave] || {};
     const feito = !!estado.feito;
     const mudou = feito && estado.valorCentavos !== b.total;
@@ -395,14 +410,18 @@ function telaReserva(ciclo, lancamentos, reserva) {
       ? `<button class="${feito ? "secundario" : ""}" data-reserva="${esc(b.chave)}" data-marcar="${feito ? "0" : "1"}" data-valor="${b.total}">${feito ? "Desmarcar" : "Marcar como transferido"}</button>`
       : `<p class="dica">Nada a transferir nesta parte.</p>`;
     return `
-      <section class="cartao">
-        <h2>${esc(b.rotulo)}</h2>
-        ${intervalo}
-        <p class="valor-grande">${esc(formatarReal(b.total))}</p>
-        ${situacao}
-        ${aviso}
-        ${acao}
-      </section>`;
+      <details class="cartao semana" ${aberto ? "open" : ""}>
+        <summary>
+          <span>${esc(b.rotulo)}${aberto ? ' <em class="etiqueta">atual</em>' : ""}</span>
+          <span class="semana-total">${esc(formatarReal(b.total))}</span>
+        </summary>
+        <div class="semana-corpo">
+          ${intervalo}
+          ${situacao}
+          ${aviso}
+          ${acao}
+        </div>
+      </details>`;
   }).join("");
 
   const real = reserva.valorFaturaReal;
@@ -415,13 +434,21 @@ function telaReserva(ciclo, lancamentos, reserva) {
   }
 
   return `
-    <section class="cartao">
-      <h2>Resumo da reserva</h2>
-      <p>Total da fatura: <strong>${esc(formatarReal(totalFatura))}</strong></p>
-      <p>Já transferido: <strong>${esc(formatarReal(transferido))}</strong></p>
-      <p>Falta transferir: <strong>${esc(formatarReal(falta))}</strong></p>
-      <p class="dica">Fecha em ${esc(formatarData(ciclo.fechamento))}. Compras de ${esc(formatarData(ciclo.inicio))} a ${esc(formatarData(ciclo.fim))}.</p>
+    <section class="stats">
+      <div class="stat">
+        <span class="stat-rotulo">Total da fatura</span>
+        <span class="stat-valor">${esc(formatarReal(totalFatura))}</span>
+      </div>
+      <div class="stat">
+        <span class="stat-rotulo">Já transferido</span>
+        <span class="stat-valor">${esc(formatarReal(transferido))}</span>
+      </div>
+      <div class="stat destaque">
+        <span class="stat-rotulo">Falta transferir</span>
+        <span class="stat-valor">${esc(formatarReal(falta))}</span>
+      </div>
     </section>
+    <p class="dica">Fecha em ${esc(formatarData(ciclo.fechamento))}. Compras de ${esc(formatarData(ciclo.inicio))} a ${esc(formatarData(ciclo.fim))}.</p>
 
     ${cards}
 

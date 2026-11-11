@@ -211,3 +211,32 @@ button.secundario.ocupado::after { border-color: var(--azul-escuro); border-righ
 
 .valor-grande { font-size: 1.4rem; font-weight: 600; margin: 4px 0 8px; }
 .aviso-leve { font-size: .85rem; color: #8a5a00; background: #fff4d6; padding: 8px; border-radius: 8px; }
+
+/* Resumo em números grandes */
+.stats { display: grid; grid-template-columns: 1fr; gap: 10px; margin-bottom: 10px; }
+.stat {
+  display: flex; flex-direction: column; gap: 4px;
+  background: #fff; border-radius: 12px; padding: 14px 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+.stat-rotulo { font-size: 0.85rem; color: var(--cinza); }
+.stat-valor { font-size: 2rem; font-weight: 700; line-height: 1.15; }
+.stat.destaque .stat-valor { color: var(--azul); }
+
+/* Semanas recolhíveis */
+.semana > summary {
+  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  font-weight: 600; font-size: 1.05rem; cursor: pointer; list-style: none;
+}
+.semana > summary::-webkit-details-marker { display: none; }
+.semana > summary::after {
+  content: "▾"; color: var(--cinza); transition: transform 0.2s ease;
+}
+.semana[open] > summary::after { transform: rotate(180deg); }
+.semana-total { margin-left: auto; font-size: 1.1rem; }
+.semana-corpo { margin-top: 10px; }
+.etiqueta {
+  font-style: normal; font-size: 0.75rem; font-weight: 500;
+  background: #e6ecf4; color: var(--azul-escuro);
+  padding: 2px 8px; border-radius: 999px; margin-left: 6px;
+}
