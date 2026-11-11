@@ -12,6 +12,7 @@ import {
   formatarData,
   formatarReal,
 } from "./dominio.js";
+import { lerFatura } from "./importador.js";
 import {
   initializeApp,
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
@@ -52,6 +53,8 @@ let usuarioAtual = null;
 // Cada renderização recebe um número; só a mais recente pode escrever na tela.
 // Assim, uma tela antiga que termina depois não sobrescreve a atual.
 let versaoRender = 0;
+// Prévia da importação da planilha do Itaú. Fica só na tela até confirmar ou cancelar.
+let previaImportacao = null;
 
 // Sair: encerra a sessão e mostra o login direto, sem depender de estado anterior.
 async function sair() {
@@ -64,6 +67,7 @@ async function sair() {
   usuarioAtual = null;
   lar = null;
   abaAtiva = "fatura";
+  previaImportacao = null;
   renderLogin();
 }
 
@@ -261,6 +265,142 @@ async function salvarCompra(form, usuario) {
 
   await lote.commit();
   return null;
+}
+
+// --- Importação da fatura do Itaú ---------------------------------------
+
+// Mesma compra, mesma parcela, mesmo cartão e mesma data = mesmo lançamento.
+// A descrição não entra porque o banco a corta de um jeito diferente do que digitamos.
+function chaveDedup(l) {
+  return `${l.cartaoFinal}|${l.valorCentavos}|${chaveData(l.dataCompra)}|${l.parcela}|${l.totalParcelas}`;
+}
+
+async function carregarTodosLancamentos() {
+  const snap = await getDocs(refLancamentos());
+  return snap.docs.map((d) => {
+    const dados = d.data();
+    return {
+      id: d.id,
+      cartaoFinal: dados.cartaoFinal,
+      valorCentavos: dados.valorCentavos,
+      dataCompra: dados.dataCompra.toDate(),
+      parcela: dados.parcela,
+      totalParcelas: dados.totalParcelas,
+      origem: dados.origem,
+    };
+  });
+}
+
+// Monta a prévia sem gravar nada: confere totais, vencimento e quantos lançamentos serão substituídos.
+async function montarPrevia(fatura) {
+  if (!fatura.vencimento) {
+    throw new Error("Não encontrei a data de vencimento na planilha.");
+  }
+  if (!fatura.lancamentos.length) {
+    throw new Error("Não encontrei compras positivas nesta planilha.");
+  }
+
+  // A fatura fecha no mês anterior ao vencimento, no dia de fechamento do lar.
+  const fechamento = new Date(fatura.vencimento.getFullYear(), fatura.vencimento.getMonth() - 1, lar.diaFechamento);
+  const vencimentoApp = vencimentoDaFatura(fechamento, lar.diaVencimento);
+  const chaveFatura = chaveData(fechamento);
+
+  const lancamentos = fatura.lancamentos.map((l) => ({ ...l, faturaFechamento: chaveFatura }));
+  const totalImportado = somar(lancamentos);
+
+  const existentes = await carregarTodosLancamentos();
+  const chaves = new Set(lancamentos.map(chaveDedup));
+  const substituindo = existentes.filter((e) => chaves.has(chaveDedup(e))).length;
+
+  return {
+    chaveFatura,
+    fechamento,
+    vencimento: vencimentoApp,
+    vencimentoArquivo: fatura.vencimento,
+    vencimentoConfere: chaveData(vencimentoApp) === chaveData(fatura.vencimento),
+    lancamentos,
+    ignorados: fatura.ignorados,
+    totalImportado,
+    totalArquivo: fatura.valorParcialCentavos,
+    totalConfere: fatura.valorParcialCentavos === totalImportado,
+    substituindo,
+  };
+}
+
+async function verPreviaImportacao(usuario, botao) {
+  const erro = document.getElementById("erro-importacao");
+  const arquivo = document.getElementById("arquivo-fatura").files[0];
+  erro.textContent = "";
+  if (!arquivo) {
+    erro.textContent = "Escolha a planilha primeiro.";
+    return;
+  }
+  await comCarregamento(botao, "Lendo planilha…", async () => {
+    try {
+      const fatura = await lerFatura(await arquivo.arrayBuffer());
+      previaImportacao = await montarPrevia(fatura);
+      await renderApp(usuario);
+    } catch (e) {
+      const msg = e.code ? mensagemDeErro(e.code) : (e.message || "Não consegui ler esta planilha.");
+      erro.textContent = msg;
+      mostrarAviso(msg, "erro");
+    }
+  });
+}
+
+async function confirmarImportacao(usuario, botao) {
+  const previa = previaImportacao;
+  if (!previa) return;
+  const texto = `Importar ${previa.lancamentos.length} compras e substituir ${previa.substituindo} lançamentos existentes?`;
+  if (!confirm(texto)) return;
+
+  await comCarregamento(botao, "Importando…", async () => {
+    try {
+      const existentes = await carregarTodosLancamentos();
+      const chaves = new Set(previa.lancamentos.map(chaveDedup));
+      const operacoes = [
+        // A importação prevalece: remove o que casa com a planilha, manual ou de importação anterior.
+        ...existentes
+          .filter((e) => chaves.has(chaveDedup(e)))
+          .map((e) => ({ apagar: doc(db, "lares", LAR_ID, "lancamentos", e.id) })),
+        ...previa.lancamentos.map((l) => ({
+          criar: {
+            descricao: l.descricao,
+            categoria: "Outros",
+            cartaoFinal: l.cartaoFinal,
+            portador: l.portador,
+            valorCentavos: l.valorCentavos,
+            dataCompra: l.dataCompra,
+            parcela: l.parcela,
+            totalParcelas: l.totalParcelas,
+            grupoId: `imp|${l.cartaoFinal}|${chaveData(l.dataCompra)}|${l.descricao}|${l.totalParcelas}`,
+            faturaFechamento: previa.chaveFatura,
+            lancadoPorUid: usuario.uid,
+            lancadoPorNome: nomeDoUsuario(usuario),
+            origem: "importada",
+            criadoEm: new Date(),
+          },
+        })),
+      ];
+
+      // O Firestore aceita até 500 operações por lote; uso 400 por segurança.
+      for (let i = 0; i < operacoes.length; i += 400) {
+        const lote = writeBatch(db);
+        operacoes.slice(i, i + 400).forEach((op) => {
+          if (op.apagar) lote.delete(op.apagar);
+          else lote.set(doc(refLancamentos()), op.criar);
+        });
+        await lote.commit();
+      }
+
+      previaImportacao = null;
+      mostrarAviso(`${previa.lancamentos.length} compras importadas.`, "sucesso");
+      abaAtiva = "fatura";
+      await renderApp(usuario);
+    } catch (e) {
+      mostrarAviso(mensagemDeErro(e.code), "erro");
+    }
+  });
 }
 
 async function excluirGrupo(grupoId) {
@@ -518,6 +658,51 @@ function telaLancar(hoje, opcoesCartao, opcoesPortador, opcoesCategoria) {
     </section>`;
 }
 
+function blocoImportar() {
+  if (!previaImportacao) {
+    return `
+      <section class="cartao">
+        <h2>Importar fatura do Itaú</h2>
+        <p class="dica">Escolha a planilha "Fatura Aberta" exportada do Itaú (.xlsx). Nada é gravado antes da prévia.</p>
+        <input type="file" id="arquivo-fatura" accept=".xlsx">
+        <button type="button" id="btn-ver-previa">Ver prévia</button>
+        <p class="erro" id="erro-importacao"></p>
+      </section>`;
+  }
+
+  const p = previaImportacao;
+  const confere = (ok, sim, nao) => `<span class="${ok ? "ok" : "erro"}">${ok ? sim : nao}</span>`;
+  const itens = p.lancamentos.map((l) => `
+    <li class="item">
+      <div class="linha">
+        <strong>${esc(l.descricao)}</strong>
+        <span>${esc(formatarReal(l.valorCentavos))}</span>
+      </div>
+      <div class="detalhe">${esc(formatarData(l.dataCompra))} · ${esc(l.portador)} · final ${esc(l.cartaoFinal)}${l.totalParcelas > 1 ? ` · parcela ${l.parcela} de ${l.totalParcelas}` : ""}</div>
+    </li>`).join("");
+  const ignorados = p.ignorados.map((i) => `${esc(formatarData(i.dataCompra))} · ${esc(formatarReal(i.valorCentavos))} (${esc(i.motivo)})`).join("<br>");
+
+  return `
+    <section class="cartao">
+      <h2>Prévia da importação</h2>
+      <p>Fecha em <strong>${esc(formatarData(p.fechamento))}</strong>. Vence em <strong>${esc(formatarData(p.vencimento))}</strong>
+        ${confere(p.vencimentoConfere, "(bate com a planilha)", `(a planilha diz ${esc(formatarData(p.vencimentoArquivo))})`)}</p>
+      <p>Total das compras: <strong>${esc(formatarReal(p.totalImportado))}</strong>
+        ${confere(p.totalConfere, "(bate com o cabeçalho)", `(cabeçalho: ${esc(formatarReal(p.totalArquivo))})`)}</p>
+      <p>Compras a importar: <strong>${p.lancamentos.length}</strong>.
+        Lançamentos existentes que serão substituídos: <strong>${p.substituindo}</strong>.</p>
+      ${ignorados ? `<p class="dica">Ignorados: ${ignorados}</p>` : ""}
+      <div class="acoes">
+        <button type="button" id="btn-importar">Importar ${p.lancamentos.length} compras</button>
+        <button type="button" class="secundario" id="btn-cancelar-previa">Cancelar</button>
+      </div>
+    </section>
+
+    <section class="cartao">
+      <ul class="lista">${itens}</ul>
+    </section>`;
+}
+
 function telaAjustes(cartoes) {
   return `
     <section class="cartao">
@@ -538,6 +723,8 @@ function telaAjustes(cartoes) {
         <p class="erro" id="erro-config"></p>
       </form>
     </section>
+
+    ${blocoImportar()}
 
     ${blocoInstalar()}`;
 }
@@ -709,6 +896,22 @@ async function renderApp(usuario) {
           mostrarAviso(msg, "erro");
         }
       });
+    });
+  }
+
+  const btnVerPrevia = document.getElementById("btn-ver-previa");
+  if (btnVerPrevia) {
+    btnVerPrevia.addEventListener("click", () => verPreviaImportacao(usuario, btnVerPrevia));
+  }
+  const btnImportar = document.getElementById("btn-importar");
+  if (btnImportar) {
+    btnImportar.addEventListener("click", () => confirmarImportacao(usuario, btnImportar));
+  }
+  const btnCancelarPrevia = document.getElementById("btn-cancelar-previa");
+  if (btnCancelarPrevia) {
+    btnCancelarPrevia.addEventListener("click", async () => {
+      previaImportacao = null;
+      await renderApp(usuario);
     });
   }
 

@@ -2,7 +2,7 @@
 // quando há internet, o app sempre busca a versão mais nova dos arquivos locais.
 // Sem internet, usa a última cópia guardada no cache.
 // Não é preciso trocar VERSAO a cada publicação, mas trocá-la limpa caches antigos.
-const VERSAO = "gastos-cartao-v10";
+const VERSAO = "gastos-cartao-v11";
 
 const CASCO = [
   "./",
@@ -11,6 +11,7 @@ const CASCO = [
   "./manifest.json",
   "./js/app.js",
   "./js/dominio.js",
+  "./js/importador.js",
   "./js/firebase-config.js",
   "./icons/icon-192-v2.png",
   "./icons/icon-512-v2.png",

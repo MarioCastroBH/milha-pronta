@@ -240,3 +240,5 @@ button.secundario.ocupado::after { border-color: var(--azul-escuro); border-righ
   background: #e6ecf4; color: var(--azul-escuro);
   padding: 2px 8px; border-radius: 999px; margin-left: 6px;
 }
+
+.ok { color: #1e7a3c; }
