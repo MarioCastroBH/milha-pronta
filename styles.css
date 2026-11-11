@@ -189,3 +189,6 @@ button.secundario.ocupado::after { border-color: var(--azul-escuro); border-righ
 }
 .barra-inferior button[aria-current="page"] { color: var(--azul); font-weight: 600; }
 .barra-inferior svg { width: 22px; height: 22px; }
+
+.valor-grande { font-size: 1.4rem; font-weight: 600; margin: 4px 0 8px; }
+.aviso-leve { font-size: .85rem; color: #8a5a00; background: #fff4d6; padding: 8px; border-radius: 8px; }

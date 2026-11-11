@@ -51,6 +51,7 @@ let abaAtiva = "fatura";
 // Ícones em SVG embutido: não dependem de internet nem de fontes externas.
 const ICONES = {
   fatura: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></svg>',
+  reserva: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="18" height="14" rx="2"/><path d="M3 10h18M16 15h.01"/></svg>',
   lancar: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
   ajustes: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h10M18 18h2"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="16" cy="18" r="2"/></svg>',
 };
@@ -59,6 +60,7 @@ const ICONE_SAIR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" s
 
 const ABAS = [
   { id: "fatura", rotulo: "Fatura" },
+  { id: "reserva", rotulo: "Reserva" },
   { id: "lancar", rotulo: "Lançar" },
   { id: "ajustes", rotulo: "Ajustes" },
 ];
@@ -127,6 +129,39 @@ function ehIphoneSemInstalar() {
   return ios && !standalone;
 }
 
+function somar(lista) {
+  return lista.reduce((soma, l) => soma + l.valorCentavos, 0);
+}
+
+// --- Ciclo e semanas -----------------------------------------------------
+
+// Compras de um dia entram na fatura que fecha no dia de fechamento seguinte.
+// Logo, o ciclo vai do dia de fechamento anterior (incluso) até o dia antes do próximo fechamento.
+function calcularCiclo(hoje) {
+  const fechamento = fechamentoDaCompra(hoje, lar.diaFechamento);
+  const inicio = new Date(fechamento.getFullYear(), fechamento.getMonth() - 1, fechamento.getDate());
+  const fim = new Date(fechamento.getFullYear(), fechamento.getMonth(), fechamento.getDate() - 1);
+  return { fechamento, inicio, fim, chave: chaveData(fechamento) };
+}
+
+// Divide o ciclo em blocos de 7 dias, começando no início do ciclo.
+function semanasDoCiclo(inicio, fim) {
+  const semanas = [];
+  let atual = new Date(inicio);
+  while (atual <= fim) {
+    const fimBruto = new Date(atual.getFullYear(), atual.getMonth(), atual.getDate() + 6);
+    const termina = fimBruto > fim ? fim : fimBruto;
+    semanas.push({ numero: semanas.length + 1, inicio: new Date(atual), fim: new Date(termina) });
+    atual = new Date(atual.getFullYear(), atual.getMonth(), atual.getDate() + 7);
+  }
+  return semanas;
+}
+
+function dentroDe(data, inicio, fim) {
+  const k = chaveData(data);
+  return k >= chaveData(inicio) && k <= chaveData(fim);
+}
+
 // --- Dados ---------------------------------------------------------------
 
 async function garantirLar() {
@@ -148,6 +183,18 @@ async function carregarFatura(chave) {
   return snap.docs
     .map((d) => ({ id: d.id, ...d.data() }))
     .sort((a, b) => b.dataCompra.toMillis() - a.dataCompra.toMillis());
+}
+
+async function carregarReserva(chave) {
+  const snap = await getDoc(doc(db, "lares", LAR_ID, "reservas", chave));
+  return snap.exists() ? snap.data() : {};
+}
+
+async function salvarTransferencia(chave, item, valorCentavos, marcar, usuario) {
+  const dados = marcar
+    ? { feito: true, valorCentavos, feitoPorNome: nomeDoUsuario(usuario), feitoEm: new Date() }
+    : { feito: false, valorCentavos: null, feitoPorNome: null, feitoEm: null };
+  await setDoc(doc(db, "lares", LAR_ID, "reservas", chave), { itens: { [item]: dados } }, { merge: true });
 }
 
 // Retorna null se salvou, ou a mensagem de validação.
@@ -301,6 +348,94 @@ function telaFatura(fechamento, vencimento, lancamentos, total, resumoPorPortado
     </section>`;
 }
 
+function telaReserva(ciclo, lancamentos, reserva) {
+  const itensReserva = reserva.itens || {};
+
+  const semanas = semanasDoCiclo(ciclo.inicio, ciclo.fim).map((s) => {
+    const compras = lancamentos.filter((l) => dentroDe(l.dataCompra.toDate(), s.inicio, s.fim));
+    return {
+      chave: `semana-${s.numero}`,
+      rotulo: `Semana ${s.numero}`,
+      intervalo: `${formatarData(s.inicio)} a ${formatarData(s.fim)}`,
+      total: somar(compras),
+      inicio: s.inicio,
+      fim: s.fim,
+    };
+  });
+
+  const noCiclo = (l) => semanas.some((s) => dentroDe(l.dataCompra.toDate(), s.inicio, s.fim));
+  const anteriores = lancamentos.filter((l) => !noCiclo(l));
+
+  const blocos = [
+    ...semanas,
+    { chave: "anteriores", rotulo: "Parcelas de compras anteriores", intervalo: "", total: somar(anteriores) },
+  ];
+
+  const totalFatura = somar(lancamentos);
+  const transferido = blocos
+    .filter((b) => itensReserva[b.chave] && itensReserva[b.chave].feito)
+    .reduce((soma, b) => soma + b.total, 0);
+  const falta = Math.max(totalFatura - transferido, 0);
+
+  const cards = blocos.map((b) => {
+    const estado = itensReserva[b.chave] || {};
+    const feito = !!estado.feito;
+    const mudou = feito && estado.valorCentavos !== b.total;
+    const intervalo = b.intervalo ? `<p class="dica">${esc(b.intervalo)}</p>` : "";
+    const situacao = feito
+      ? `<p class="dica">Transferido por ${esc(estado.feitoPorNome)}</p>`
+      : "";
+    const aviso = mudou
+      ? `<p class="aviso-leve">O valor mudou desde a transferência (era ${esc(formatarReal(estado.valorCentavos))}). Confira o que foi reservado.</p>`
+      : "";
+    const acao = b.total > 0
+      ? `<button class="${feito ? "secundario" : ""}" data-reserva="${esc(b.chave)}" data-marcar="${feito ? "0" : "1"}" data-valor="${b.total}">${feito ? "Desmarcar" : "Marcar como transferido"}</button>`
+      : `<p class="dica">Nada a transferir nesta parte.</p>`;
+    return `
+      <section class="cartao">
+        <h2>${esc(b.rotulo)}</h2>
+        ${intervalo}
+        <p class="valor-grande">${esc(formatarReal(b.total))}</p>
+        ${situacao}
+        ${aviso}
+        ${acao}
+      </section>`;
+  }).join("");
+
+  const real = reserva.valorFaturaReal;
+  let comparacao = "";
+  if (real != null) {
+    const diferenca = real - totalFatura;
+    if (diferenca === 0) comparacao = "Bate com o total lançado.";
+    else if (diferenca > 0) comparacao = `Faltou lançar ou reservar ${esc(formatarReal(diferenca))}.`;
+    else comparacao = `Sobrou ${esc(formatarReal(-diferenca))} em relação ao total lançado.`;
+  }
+
+  return `
+    <section class="cartao">
+      <h2>Resumo da reserva</h2>
+      <p>Total da fatura: <strong>${esc(formatarReal(totalFatura))}</strong></p>
+      <p>Já transferido: <strong>${esc(formatarReal(transferido))}</strong></p>
+      <p>Falta transferir: <strong>${esc(formatarReal(falta))}</strong></p>
+      <p class="dica">Fecha em ${esc(formatarData(ciclo.fechamento))}. Compras de ${esc(formatarData(ciclo.inicio))} a ${esc(formatarData(ciclo.fim))}.</p>
+    </section>
+
+    ${cards}
+
+    <section class="cartao">
+      <h2>Fatura fechada</h2>
+      <form id="form-valor-real">
+        <label>Valor real da fatura (R$)
+          <input name="valorReal" inputmode="decimal" placeholder="0,00">
+        </label>
+        <button type="submit">Salvar valor</button>
+        <p class="erro" id="erro-valor-real"></p>
+      </form>
+      ${real != null ? `<p>Valor salvo: <strong>${esc(formatarReal(real))}</strong></p>` : ""}
+      ${comparacao ? `<p class="dica">${comparacao}</p>` : ""}
+    </section>`;
+}
+
 function telaLancar(hoje, opcoesCartao, opcoesPortador, opcoesCategoria) {
   return `
     <section class="cartao">
@@ -373,19 +508,20 @@ function barraInferior() {
 
 async function renderApp(usuario) {
   const hoje = new Date();
-  const fechamento = fechamentoDaCompra(hoje, lar.diaFechamento);
-  const vencimento = vencimentoDaFatura(fechamento, lar.diaVencimento);
-  const chave = chaveData(fechamento);
+  const ciclo = calcularCiclo(hoje);
+  const vencimento = vencimentoDaFatura(ciclo.fechamento, lar.diaVencimento);
 
   let lancamentos = [];
+  let reserva = {};
   let erroCarga = "";
   try {
-    lancamentos = await carregarFatura(chave);
+    lancamentos = await carregarFatura(ciclo.chave);
+    reserva = await carregarReserva(ciclo.chave);
   } catch (e) {
     erroCarga = mensagemDeErro(e.code);
   }
 
-  const total = lancamentos.reduce((soma, l) => soma + l.valorCentavos, 0);
+  const total = somar(lancamentos);
   const porPortador = {};
   lancamentos.forEach((l) => {
     porPortador[l.portador] = (porPortador[l.portador] || 0) + l.valorCentavos;
@@ -408,12 +544,14 @@ async function renderApp(usuario) {
     .join("");
 
   let conteudo = "";
-  if (abaAtiva === "lancar") {
+  if (abaAtiva === "reserva") {
+    conteudo = telaReserva(ciclo, lancamentos, reserva);
+  } else if (abaAtiva === "lancar") {
     conteudo = telaLancar(hoje, opcoesCartao, opcoesPortador, opcoesCategoria);
   } else if (abaAtiva === "ajustes") {
     conteudo = telaAjustes(cartoes);
   } else {
-    conteudo = telaFatura(fechamento, vencimento, lancamentos, total, resumoPorPortador, erroCarga);
+    conteudo = telaFatura(ciclo.fechamento, vencimento, lancamentos, total, resumoPorPortador, erroCarga);
   }
 
   raiz.innerHTML = `
@@ -482,6 +620,48 @@ async function renderApp(usuario) {
       });
     });
   });
+
+  raiz.querySelectorAll("[data-reserva]").forEach((botao) => {
+    botao.addEventListener("click", async () => {
+      const marcar = botao.dataset.marcar === "1";
+      await comCarregamento(botao, "Salvando…", async () => {
+        try {
+          await salvarTransferencia(ciclo.chave, botao.dataset.reserva, Number(botao.dataset.valor), marcar, usuario);
+          mostrarAviso(marcar ? "Transferência marcada." : "Marcação removida.", "sucesso");
+          await renderApp(usuario);
+        } catch (e) {
+          mostrarAviso(mensagemDeErro(e.code), "erro");
+        }
+      });
+    });
+  });
+
+  const formValorReal = document.getElementById("form-valor-real");
+  if (formValorReal) {
+    formValorReal.addEventListener("submit", async (evento) => {
+      evento.preventDefault();
+      const form = evento.target;
+      const botao = evento.submitter || form.querySelector("button[type=submit]");
+      const erro = document.getElementById("erro-valor-real");
+      erro.textContent = "";
+      const valor = parseValorBR(form.valorReal.value);
+      if (!Number.isInteger(valor) || valor <= 0) {
+        erro.textContent = "Informe um valor válido, por exemplo 9547,79.";
+        return;
+      }
+      await comCarregamento(botao, "Salvando…", async () => {
+        try {
+          await setDoc(doc(db, "lares", LAR_ID, "reservas", ciclo.chave), { valorFaturaReal: valor }, { merge: true });
+          mostrarAviso("Valor da fatura salvo.", "sucesso");
+          await renderApp(usuario);
+        } catch (e) {
+          const msg = mensagemDeErro(e.code);
+          erro.textContent = msg;
+          mostrarAviso(msg, "erro");
+        }
+      });
+    });
+  }
 
   const formConfig = document.getElementById("form-config");
   if (formConfig) {
