@@ -1,0 +1,21 @@
+rules_version = '2';
+
+// Regras de acesso do Firestore. Cole no painel do Firebase: Firestore > Regras > Publicar.
+// Substitua os dois UIDs pelos IDs de usuário de cada conta (Authentication > Usuários).
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function autorizado() {
+      return request.auth != null &&
+        request.auth.uid in ['SUBSTITUIR_UID_MARIO', 'SUBSTITUIR_UID_CIBELE'];
+    }
+
+    match /lares/{lar} {
+      allow read, write: if autorizado();
+
+      match /{documento=**} {
+        allow read, write: if autorizado();
+      }
+    }
+  }
+}
