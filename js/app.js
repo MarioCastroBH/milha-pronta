@@ -576,5 +576,8 @@ if ("serviceWorker" in navigator) {
       window.location.reload();
     }
   });
-  navigator.serviceWorker.register("./sw.js");
+  // Pede ao navegador que verifique agora se existe uma versão nova do sw.js.
+  navigator.serviceWorker.register("./sw.js")
+    .then((registro) => registro.update())
+    .catch(() => {});
 }
