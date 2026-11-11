@@ -35,6 +35,7 @@ import {
   where,
   getDocs,
   writeBatch,
+  deleteField,
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
 const firebase = initializeApp(firebaseConfig);
@@ -94,6 +95,8 @@ function mostrarAviso(texto, tipo = "info") {
     el.id = "toast";
     el.setAttribute("role", "status");
     el.setAttribute("aria-live", "polite");
+    // Toque no aviso para fechá-lo antes do tempo.
+    el.addEventListener("click", () => el.classList.remove("visivel"));
     document.body.appendChild(el);
   }
   el.textContent = texto;
@@ -426,9 +429,11 @@ function telaReserva(ciclo, lancamentos, reserva) {
       <h2>Fatura fechada</h2>
       <form id="form-valor-real">
         <label>Valor real da fatura (R$)
-          <input name="valorReal" inputmode="decimal" placeholder="0,00">
+          <input name="valorReal" inputmode="decimal" placeholder="0,00"
+            value="${real != null ? esc((real / 100).toFixed(2).replace(".", ",")) : ""}">
         </label>
-        <button type="submit">Salvar valor</button>
+        <button type="submit">${real != null ? "Atualizar valor" : "Salvar valor"}</button>
+        ${real != null ? `<button type="button" class="secundario" data-acao="remover-valor-real">Remover valor</button>` : ""}
         <p class="erro" id="erro-valor-real"></p>
       </form>
       ${real != null ? `<p>Valor salvo: <strong>${esc(formatarReal(real))}</strong></p>` : ""}
@@ -658,6 +663,23 @@ async function renderApp(usuario) {
           const msg = mensagemDeErro(e.code);
           erro.textContent = msg;
           mostrarAviso(msg, "erro");
+        }
+      });
+    });
+  }
+
+  const btnRemoverReal = raiz.querySelector("[data-acao='remover-valor-real']");
+  if (btnRemoverReal) {
+    btnRemoverReal.addEventListener("click", async () => {
+      if (!confirm("Remover o valor real informado para esta fatura?")) return;
+      await comCarregamento(btnRemoverReal, "Removendo…", async () => {
+        try {
+          await setDoc(doc(db, "lares", LAR_ID, "reservas", ciclo.chave),
+            { valorFaturaReal: deleteField() }, { merge: true });
+          mostrarAviso("Valor da fatura removido.", "sucesso");
+          await renderApp(usuario);
+        } catch (e) {
+          mostrarAviso(mensagemDeErro(e.code), "erro");
         }
       });
     });
