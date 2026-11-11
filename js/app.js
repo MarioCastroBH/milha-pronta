@@ -48,6 +48,24 @@ const raiz = document.getElementById("app");
 let instalacaoDisponivel = null;
 let lar = null;
 let abaAtiva = "fatura";
+let usuarioAtual = null;
+// Cada renderização recebe um número; só a mais recente pode escrever na tela.
+// Assim, uma tela antiga que termina depois não sobrescreve a atual.
+let versaoRender = 0;
+
+// Sair: encerra a sessão e mostra o login direto, sem depender de estado anterior.
+async function sair() {
+  try {
+    await signOut(auth);
+  } catch (e) {
+    mostrarAviso("Não foi possível sair. Tente de novo.", "erro");
+    return;
+  }
+  usuarioAtual = null;
+  lar = null;
+  abaAtiva = "fatura";
+  renderLogin();
+}
 
 // Ícones em SVG embutido: não dependem de internet nem de fontes externas.
 const ICONES = {
@@ -539,6 +557,8 @@ function barraInferior() {
 }
 
 async function renderApp(usuario) {
+  const versao = ++versaoRender;
+  usuarioAtual = usuario;
   const hoje = new Date();
   const ciclo = calcularCiclo(hoje);
   const vencimento = vencimentoDaFatura(ciclo.fechamento, lar.diaVencimento);
@@ -586,6 +606,7 @@ async function renderApp(usuario) {
     conteudo = telaFatura(ciclo.fechamento, vencimento, lancamentos, total, resumoPorPortador, erroCarga);
   }
 
+  if (versao !== versaoRender || usuarioAtual !== usuario) return;
   raiz.innerHTML = `
     <header class="topo">
       <span>${esc(nomeDoUsuario(usuario))}</span>
@@ -595,11 +616,7 @@ async function renderApp(usuario) {
 
   const btnSairBarra = raiz.querySelector("[data-acao='sair']");
   if (btnSairBarra) {
-    btnSairBarra.addEventListener("click", (evento) => {
-      comCarregamento(evento.currentTarget, "Saindo…", () => signOut(auth)).catch(() => {
-        mostrarAviso("Não foi possível sair. Tente de novo.", "erro");
-      });
-    });
+    btnSairBarra.addEventListener("click", sair);
   }
 
   raiz.querySelectorAll("[data-aba]").forEach((botao) => {
@@ -764,7 +781,7 @@ function renderSemAcesso(mensagem) {
     </section>`;
   raiz.querySelector(".erro").textContent = mensagem;
   document.getElementById("btn-sair").addEventListener("click", (evento) => {
-    comCarregamento(evento.currentTarget, "Saindo…", () => signOut(auth));
+    sair();
   });
 }
 
@@ -777,11 +794,14 @@ window.addEventListener("beforeinstallprompt", (evento) => {
 
 onAuthStateChanged(auth, async (usuario) => {
   if (!usuario) {
+    usuarioAtual = null;
+    lar = null;
     renderLogin();
     return;
   }
   try {
     lar = await garantirLar();
+    if (usuarioAtual !== null && usuarioAtual.uid !== usuario.uid) return;
     await renderApp(usuario);
   } catch (e) {
     renderSemAcesso(mensagemDeErro(e.code));
