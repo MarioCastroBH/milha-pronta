@@ -419,16 +419,9 @@ async function renderApp(usuario) {
   raiz.innerHTML = `
     <header class="topo">
       <span>${esc(nomeDoUsuario(usuario))}</span>
-      <button id="btn-sair" class="secundario">Sair</button>
     </header>
     ${conteudo}
     ${barraInferior()}`;
-
-  document.getElementById("btn-sair").addEventListener("click", (evento) => {
-    comCarregamento(evento.currentTarget, "Saindo…", () => signOut(auth)).catch(() => {
-      mostrarAviso("Não foi possível sair. Tente de novo.", "erro");
-    });
-  });
 
   const btnSairBarra = raiz.querySelector("[data-acao='sair']");
   if (btnSairBarra) {
