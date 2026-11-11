@@ -252,3 +252,7 @@ input[type="file"] { margin-bottom: 14px; }
 #busca-fatura { margin-bottom: 10px; }
 .seletor-modo { display: flex; gap: 8px; margin-bottom: 12px; }
 .seletor-modo button { flex: 1; }
+
+/* Compras dentro do card da semana na Reserva */
+.itens-semana { margin-top: 10px; }
+.itens-semana > summary { cursor: pointer; color: var(--azul); font-size: 0.9rem; font-weight: 600; }

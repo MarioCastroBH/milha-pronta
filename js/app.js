@@ -497,6 +497,9 @@ function dataDeChave(chave) {
   return new Date(ano, mes - 1, dia);
 }
 
+// Na Reserva, os lançamentos vêm com a data em formato do Firestore; aqui passam a ser Date.
+const comData = (l) => ({ ...l, dataCompra: l.dataCompra.toDate() });
+
 function itemLancamento(l, comFatura = false) {
   const parcela = l.totalParcelas > 1 ? `parcela ${l.parcela} de ${l.totalParcelas} · ` : "";
   const fatura = comFatura && l.faturaFechamento
@@ -622,6 +625,7 @@ function telaReserva(ciclo, lancamentos, reserva) {
       rotulo: `Semana ${s.numero}`,
       intervalo: `${formatarData(s.inicio)} a ${formatarData(s.fim)}`,
       total: somar(compras),
+      compras,
       inicio: s.inicio,
       fim: s.fim,
     };
@@ -632,7 +636,7 @@ function telaReserva(ciclo, lancamentos, reserva) {
 
   const blocos = [
     ...semanas,
-    { chave: "anteriores", rotulo: "Parcelas de compras anteriores", intervalo: "", total: somar(anteriores) },
+    { chave: "anteriores", rotulo: "Parcelas de compras anteriores", intervalo: "", total: somar(anteriores), compras: anteriores },
   ];
 
   const totalFatura = somar(lancamentos);
@@ -677,6 +681,12 @@ function telaReserva(ciclo, lancamentos, reserva) {
           ${situacao}
           ${aviso}
           ${acao}
+          <details class="itens-semana">
+            <summary>Ver as ${b.compras.length} compra(s) desta parte</summary>
+            ${b.compras.length
+              ? `<ul class="lista">${b.compras.map((c) => itemLancamento(comData(c))).join("")}</ul>`
+              : `<p class="dica">Nada lançado aqui.</p>`}
+          </details>
         </div>
       </details>`;
   }).join("");
